@@ -38,9 +38,14 @@
     .controls label { font-size: 14px; color: #666; }
     input[type="range"] { flex: 1; }
     .pct { font-weight: 600; min-width: 40px; }
-    .output { background: #fff; border: 1px solid #ddd; padding: 24px; margin-top: 24px; min-height: 100px; }
-    .output:empty::before { content: "Summary will appear here..."; color: #aaa; }
-    .stats { font-size: 13px; color: #888; margin-top: 16px; }
+    .output-wrapper { margin-top: 12px; }
+    .output { background: #fff; border: 1px solid #ddd; padding: 16px; min-height: 80px; white-space: pre-wrap; }
+    #summaryText:empty::before { content: "Summary will appear here..."; color: #aaa; }
+    .output-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .output-header:has(.stats:empty) { display: none; }
+    .stats { font-size: 14px; color: #666; font-weight: 500; }
+    .copy-output { padding: 6px 14px; background: #555; color: #fff; border: none; cursor: pointer; font-size: 13px; transition: background 0.2s; }
+    .copy-output:hover { background: #333; }
     .api-info { margin-top: 48px; padding-top: 32px; border-top: 1px solid #ddd; }
     .api-info h2 { font-size: 18px; font-weight: 400; margin-bottom: 16px; }
     .api-info code { background: #e8e8e0; padding: 2px 6px; font-size: 13px; }
@@ -71,8 +76,15 @@ Interestingly, both foxes and dogs belong to the family Canidae. This family als
       <span class="pct"><span id="pctVal">30</span>%</span>
     </div>
     
-    <div class="output" id="output"></div>
-    <div class="stats ui-only" id="stats"></div>
+    <div class="output-wrapper">
+      <div class="output" id="output">
+        <div class="output-header ui-only">
+          <span class="stats" id="stats"></span>
+          <button class="copy-output" onclick="copyOutput()">Copy</button>
+        </div>
+        <div id="summaryText"></div>
+      </div>
+    </div>
     
     <div class="share-link ui-only">
       <label style="font-size: 13px; color: #666;">Shareable link:</label>
@@ -101,12 +113,13 @@ Interestingly, both foxes and dogs belong to the family Canidae. This family als
     const pct = document.getElementById('pct');
     const pctVal = document.getElementById('pctVal');
     const output = document.getElementById('output');
+    const summaryText = document.getElementById('summaryText');
     const stats = document.getElementById('stats');
     const shareUrl = document.getElementById('shareUrl');
 
-    // Split text into sentences using multiple delimiters
-    function getSentences(text) {
-      let t = text
+    // Escape common abbreviations to avoid false sentence splits
+    function escapeAbbreviations(text) {
+      return text
         .replace(/\be\.g\./gi, 'EG_ABBR')
         .replace(/\bi\.e\./gi, 'IE_ABBR')
         .replace(/\betc\./gi, 'ETC_ABBR')
@@ -115,20 +128,38 @@ Interestingly, both foxes and dogs belong to the family Canidae. This family als
         .replace(/\bmr\./gi, 'MR_ABBR')
         .replace(/\bmrs\./gi, 'MRS_ABBR')
         .replace(/\bms\./gi, 'MS_ABBR');
+    }
+
+    function restoreAbbreviations(text) {
+      return text
+        .replace(/EG_ABBR/g, 'e.g.')
+        .replace(/IE_ABBR/g, 'i.e.')
+        .replace(/ETC_ABBR/g, 'etc.')
+        .replace(/VS_ABBR/g, 'vs.')
+        .replace(/DR_ABBR/g, 'Dr.')
+        .replace(/MR_ABBR/g, 'Mr.')
+        .replace(/MRS_ABBR/g, 'Mrs.')
+        .replace(/MS_ABBR/g, 'Ms.');
+    }
+
+    // Split text into sentences with paragraph tracking
+    function getSentencesWithParagraphs(text) {
+      const paragraphs = text.split(/\n\s*\n+/);
+      const sentences = [];
       
-      const parts = t.split(/[.?!;]\s+|[.?!;]$|\n+|—|–/);
+      paragraphs.forEach((para, paraIndex) => {
+        const escaped = escapeAbbreviations(para);
+        const parts = escaped.split(/[.?!;]\s+|[.?!;]$|—|–/);
+        
+        parts.forEach(s => {
+          const cleaned = restoreAbbreviations(s).trim();
+          if (cleaned.length > 0) {
+            sentences.push({ text: cleaned, paragraphIndex: paraIndex });
+          }
+        });
+      });
       
-      return parts
-        .map(s => s.replace(/EG_ABBR/g, 'e.g.')
-                   .replace(/IE_ABBR/g, 'i.e.')
-                   .replace(/ETC_ABBR/g, 'etc.')
-                   .replace(/VS_ABBR/g, 'vs.')
-                   .replace(/DR_ABBR/g, 'Dr.')
-                   .replace(/MR_ABBR/g, 'Mr.')
-                   .replace(/MRS_ABBR/g, 'Mrs.')
-                   .replace(/MS_ABBR/g, 'Ms.')
-                   .trim())
-        .filter(s => s.length > 0);
+      return sentences;
     }
 
     function getWords(text) {
@@ -154,14 +185,15 @@ Interestingly, both foxes and dogs belong to the family Canidae. This family als
     function summarize(text, keepPct) {
       if (!text || !text.trim()) return { summary: '', kept: 0, total: 0 };
       
-      const sentences = getSentences(text);
+      const sentences = getSentencesWithParagraphs(text);
       const allWords = getWords(text);
       const wordFreq = getWordFrequencies(allWords);
       
       const scored = sentences.map((s, i) => ({
-        text: s,
+        text: s.text,
         index: i,
-        score: scoreSentence(s, wordFreq)
+        paragraphIndex: s.paragraphIndex,
+        score: scoreSentence(s.text, wordFreq)
       }));
       
       const scores = scored.map(s => s.score).sort((a, b) => a - b);
@@ -171,7 +203,18 @@ Interestingly, both foxes and dogs belong to the family Canidae. This family als
         .filter(s => s.score >= threshold)
         .sort((a, b) => a.index - b.index);
       
-      const summary = kept.map(s => s.text).join('. ') + (kept.length ? '.' : '');
+      // Group kept sentences by original paragraph
+      const paragraphs = {};
+      kept.forEach(s => {
+        if (!paragraphs[s.paragraphIndex]) paragraphs[s.paragraphIndex] = [];
+        paragraphs[s.paragraphIndex].push(s.text);
+      });
+      
+      // Join sentences within paragraphs, then join paragraphs with double newline
+      const summary = Object.keys(paragraphs)
+        .sort((a, b) => a - b)
+        .map(pIdx => paragraphs[pIdx].join('. ') + '.')
+        .join('\n\n');
       
       return { summary, kept: kept.length, total: sentences.length };
     }
@@ -182,7 +225,7 @@ Interestingly, both foxes and dogs belong to the family Canidae. This family als
       
       const result = summarize(text, keepPct);
       
-      output.textContent = result.summary;
+      summaryText.textContent = result.summary;
       if (stats) {
         stats.textContent = result.total ? `${result.kept} of ${result.total} sentences (${Math.round(result.kept/result.total*100)}%)` : '';
       }
@@ -203,6 +246,14 @@ Interestingly, both foxes and dogs belong to the family Canidae. This family als
       setTimeout(() => document.getElementById('copiedMsg').textContent = '', 2000);
     }
 
+    function copyOutput() {
+      navigator.clipboard.writeText(summaryText.textContent);
+      const btn = document.querySelector('.copy-output');
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = orig, 1500);
+    }
+
     // Check for URL parameters (API mode)
     const params = new URLSearchParams(window.location.search);
     const paramText = params.get('text');
@@ -216,7 +267,7 @@ Interestingly, both foxes and dogs belong to the family Canidae. This family als
       if (paramRaw === '1') {
         // Raw mode: plain text only
         document.body.className = 'raw-mode';
-        output.textContent = result.summary;
+        summaryText.textContent = result.summary;
       } else {
         // Normal mode with prefilled values
         input.value = paramText;
