@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TextReduce - Free Text Summarizer</title>
+  
+  <!-- SEO -->
+  <meta name="description" content="Free text summarizer using term-frequency weighting. Paste any text and instantly extract the most important sentences.">
+  <meta name="keywords" content="summarizer, TextReduce, text summary, TF summarization, extract sentences, summarize text, key sentences">
+  <meta name="author" content="TextReduce">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://textreduce.com/">
+  
+  <!-- Open Graph -->
+  <meta property="og:title" content="TextReduce - Free Text Summarizer">
+  <meta property="og:description" content="Extract key sentences from any text using term-frequency analysis. Free, instant, no signup.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://textreduce.com/">
+  
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="TextReduce - Free Text Summarizer">
+  <meta name="twitter:description" content="Extract key sentences from any text using term-frequency analysis.">
+
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Georgia, serif; background: #f5f5f0; color: #333; margin: 0; padding: 40px; line-height: 1.6; }
+    body.raw-mode { background: #fff; padding: 20px; }
+    body.raw-mode .container { max-width: none; }
+    body.raw-mode .ui-only { display: none; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-weight: 400; margin-bottom: 8px; }
+    .sub { color: #888; margin-bottom: 32px; font-size: 14px; }
+    textarea { width: 100%; height: 200px; border: 1px solid #ddd; padding: 16px; font-family: inherit; font-size: 15px; resize: vertical; background: #fff; }
+    textarea:focus { outline: none; border-color: #999; }
+    .controls { display: flex; align-items: center; gap: 16px; margin: 20px 0; }
+    .controls label { font-size: 14px; color: #666; }
+    input[type="range"] { flex: 1; }
+    .pct { font-weight: 600; min-width: 40px; }
+    .output-wrapper { margin-top: 12px; }
+    .output { background: #fff; border: 1px solid #ddd; padding: 16px; min-height: 80px; white-space: pre-wrap; }
+    #summaryText:empty::before { content: "Summary will appear here..."; color: #aaa; }
+    .output-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .output-header:has(.stats:empty) { display: none; }
+    .stats { font-size: 14px; color: #666; font-weight: 500; }
+    .copy-output { padding: 6px 14px; background: #555; color: #fff; border: none; cursor: pointer; font-size: 13px; transition: background 0.2s; }
+    .copy-output:hover { background: #333; }
+    .api-info { margin-top: 48px; padding-top: 32px; border-top: 1px solid #ddd; }
+    .api-info h2 { font-size: 18px; font-weight: 400; margin-bottom: 16px; }
+    .api-info code { background: #e8e8e0; padding: 2px 6px; font-size: 13px; }
+    .api-info pre { background: #e8e8e0; padding: 16px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+    .share-link { margin-top: 12px; }
+    .share-link input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; font-size: 13px; font-family: monospace; background: #fafafa; }
+    .share-link button { margin-top: 8px; padding: 6px 14px; background: #555; color: #fff; border: none; cursor: pointer; font-size: 13px; }
+    .share-link button:hover { background: #333; }
+    .copied { color: #2a2; font-size: 13px; margin-left: 8px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="ui-only">
+      <h1>TextReduce</h1>
+      <p class="sub">Term-frequency sentence summarizer</p>
+    </div>
+    
+    <textarea id="input" class="ui-only" placeholder="Paste your text here...">The quick brown fox jumps over the lazy dog. This sentence contains every letter of the alphabet; it's commonly used for font testing. Foxes are known for their cunning nature.
+
+Meanwhile, dogs are loyal companions to humans. The relationship between dogs and humans spans thousands of years. Some dogs are trained to herd sheep, while others serve as guide dogs for the visually impaired.
+
+Interestingly, both foxes and dogs belong to the family Canidae. This family also includes wolves, jackals, and coyotes. The evolutionary history of canids is fascinating—they first appeared about 40 million years ago.</textarea>
+    
+    <div class="controls ui-only">
+      <label>Keep top</label>
+      <input type="range" id="pct" min="0" max="100" value="30">
+      <span class="pct"><span id="pctVal">30</span>%</span>
+    </div>
+    
+    <div class="output-wrapper">
+      <div class="output" id="output">
+        <div class="output-header ui-only">
+          <span class="stats" id="stats"></span>
+          <button class="copy-output" onclick="copyOutput()">Copy</button>
+        </div>
+        <div id="summaryText"></div>
+      </div>
+    </div>
+    
+    <div class="share-link ui-only">
+      <label style="font-size: 13px; color: #666;">Shareable link:</label>
+      <input type="text" id="shareUrl" readonly>
+      <button onclick="copyShare()">Copy</button><span class="copied" id="copiedMsg"></span>
+    </div>
+    
+    <div class="api-info ui-only">
+      <h2>API Usage</h2>
+      <p style="font-size: 14px; color: #666;">Use URL parameters to summarize text directly:</p>
+      <pre>?text=Your+text+here&amp;pct=30
+
+# Parameters:
+  text  - URL-encoded text to summarize (required)
+  pct   - Percentage of sentences to keep (0-100, default 30)
+  raw   - Set to "1" for plain text output only
+
+# Examples:
+  ?text=Hello.+This+is+a+test.&amp;pct=50
+  ?text=Hello.+This+is+a+test.&amp;pct=50&amp;raw=1</pre>
+    </div>
+  </div>
+
+  <script>
+    const input = document.getElementById('input');
+    const pct = document.getElementById('pct');
+    const pctVal = document.getElementById('pctVal');
+    const output = document.getElementById('output');
+    const summaryText = document.getElementById('summaryText');
+    const stats = document.getElementById('stats');
+    const shareUrl = document.getElementById('shareUrl');
+
+    // Escape common abbreviations to avoid false sentence splits
+    function escapeAbbreviations(text) {
+      return text
+        .replace(/\be\.g\./gi, 'EG_ABBR')
+        .replace(/\bi\.e\./gi, 'IE_ABBR')
+        .replace(/\betc\./gi, 'ETC_ABBR')
+        .replace(/\bvs\./gi, 'VS_ABBR')
+        .replace(/\bdr\./gi, 'DR_ABBR')
+        .replace(/\bmr\./gi, 'MR_ABBR')
+        .replace(/\bmrs\./gi, 'MRS_ABBR')
+        .replace(/\bms\./gi, 'MS_ABBR');
+    }
+
+    function restoreAbbreviations(text) {
+      return text
+        .replace(/EG_ABBR/g, 'e.g.')
+        .replace(/IE_ABBR/g, 'i.e.')
+        .replace(/ETC_ABBR/g, 'etc.')
+        .replace(/VS_ABBR/g, 'vs.')
+        .replace(/DR_ABBR/g, 'Dr.')
+        .replace(/MR_ABBR/g, 'Mr.')
+        .replace(/MRS_ABBR/g, 'Mrs.')
+        .replace(/MS_ABBR/g, 'Ms.');
+    }
+
+    // Split text into sentences with paragraph tracking
+    function getSentencesWithParagraphs(text) {
+      const paragraphs = text.split(/\n\s*\n+/);
+      const sentences = [];
+      
+      paragraphs.forEach((para, paraIndex) => {
+        const escaped = escapeAbbreviations(para);
+        const parts = escaped.split(/[.?!;]\s+|[.?!;]$|—|–/);
+        
+        parts.forEach(s => {
+          const cleaned = restoreAbbreviations(s).trim();
+          if (cleaned.length > 0) {
+            sentences.push({ text: cleaned, paragraphIndex: paraIndex });
+          }
+        });
+      });
+      
+      return sentences;
+    }
+
+    function getWords(text) {
+      return text.toLowerCase()
+        .replace(/[^\w\s]/g, '')
+        .split(/\s+/)
+        .filter(w => w.length > 0);
+    }
+
+    function getWordFrequencies(words) {
+      const freq = {};
+      words.forEach(w => freq[w] = (freq[w] || 0) + 1);
+      const total = words.length;
+      Object.keys(freq).forEach(w => freq[w] = freq[w] / total);
+      return freq;
+    }
+
+    function scoreSentence(sentence, wordFreq) {
+      const words = getWords(sentence);
+      return words.reduce((sum, w) => sum + (wordFreq[w] || 0), 0);
+    }
+
+    function summarize(text, keepPct) {
+      if (!text || !text.trim()) return { summary: '', kept: 0, total: 0 };
+      
+      const sentences = getSentencesWithParagraphs(text);
+      const allWords = getWords(text);
+      const wordFreq = getWordFrequencies(allWords);
+      
+      const scored = sentences.map((s, i) => ({
+        text: s.text,
+        index: i,
+        paragraphIndex: s.paragraphIndex,
+        score: scoreSentence(s.text, wordFreq)
+      }));
+      
+      const scores = scored.map(s => s.score).sort((a, b) => a - b);
+      const threshold = scores[Math.floor(scores.length * (1 - keepPct))] || 0;
+      
+      const kept = scored
+        .filter(s => s.score >= threshold)
+        .sort((a, b) => a.index - b.index);
+      
+      // Group kept sentences by original paragraph
+      const paragraphs = {};
+      kept.forEach(s => {
+        if (!paragraphs[s.paragraphIndex]) paragraphs[s.paragraphIndex] = [];
+        paragraphs[s.paragraphIndex].push(s.text);
+      });
+      
+      // Join sentences within paragraphs, then join paragraphs with double newline
+      const summary = Object.keys(paragraphs)
+        .sort((a, b) => a - b)
+        .map(pIdx => paragraphs[pIdx].join('. ') + '.')
+        .join('\n\n');
+      
+      return { summary, kept: kept.length, total: sentences.length };
+    }
+
+    function updateUI() {
+      const text = input.value;
+      const keepPct = parseInt(pct.value) / 100;
+      
+      const result = summarize(text, keepPct);
+      
+      summaryText.textContent = result.summary;
+      if (stats) {
+        stats.textContent = result.total ? `${result.kept} of ${result.total} sentences (${Math.round(result.kept/result.total*100)}%)` : '';
+      }
+      
+      // Update share URL
+      if (shareUrl && text.trim()) {
+        const url = new URL(window.location.href.split('?')[0]);
+        url.searchParams.set('text', text);
+        url.searchParams.set('pct', pct.value);
+        shareUrl.value = url.toString();
+      }
+    }
+
+    function copyShare() {
+      shareUrl.select();
+      document.execCommand('copy');
+      document.getElementById('copiedMsg').textContent = 'Copied!';
+      setTimeout(() => document.getElementById('copiedMsg').textContent = '', 2000);
+    }
+
+    function copyOutput() {
+      navigator.clipboard.writeText(summaryText.textContent);
+      const btn = document.querySelector('.copy-output');
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = orig, 1500);
+    }
+
+    // Check for URL parameters (API mode)
+    const params = new URLSearchParams(window.location.search);
+    const paramText = params.get('text');
+    const paramPct = params.get('pct');
+    const paramRaw = params.get('raw');
+
+    if (paramText) {
+      const keepPct = Math.min(100, Math.max(0, parseInt(paramPct) || 30)) / 100;
+      const result = summarize(paramText, keepPct);
+      
+      if (paramRaw === '1') {
+        // Raw mode: plain text only
+        document.body.className = 'raw-mode';
+        summaryText.textContent = result.summary;
+      } else {
+        // Normal mode with prefilled values
+        input.value = paramText;
+        pct.value = Math.round(keepPct * 100);
+        pctVal.textContent = Math.round(keepPct * 100);
+        updateUI();
+      }
+    } else {
+      updateUI();
+    }
+
+    // Event listeners (only matter in non-raw mode)
+    if (input) input.addEventListener('input', updateUI);
+    if (pct) pct.addEventListener('input', () => {
+      pctVal.textContent = pct.value;
+      updateUI();
+    });
+  </script>
+</body>
+</html>

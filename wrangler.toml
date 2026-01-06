@@ -1,0 +1,25 @@
+name = "textreduce"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Your custom domain (optional)
+# routes = [{ pattern = "textreduce.com/*", zone_name = "textreduce.com" }]
+
+# Environment variables - set via `wrangler secret put`
+# X402_WALLET_ADDRESS - your Base wallet for receiving USDC
+
+[vars]
+# Your Base wallet for receiving USDC payments
+X402_WALLET_ADDRESS = "0x8D09C494Df969eA4c8744C4Cf94A99F17314eB23"
+
+# Testnet config (switch to mainnet when ready)
+X402_NETWORK = "eip155:84532"
+X402_FACILITATOR_URL = "https://x402.org/facilitator"
+X402_PRICE_USDC = "1000"  # $0.001 (6 decimals)
+
+# Mainnet config (uncomment when ready)
+# X402_NETWORK = "eip155:8453"
+# X402_FACILITATOR_URL = "https://api.cdp.coinbase.com/platform/v2/x402"
+
+[site]
+bucket = "./static"
