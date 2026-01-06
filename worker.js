@@ -238,6 +238,48 @@ function handleX402Manifest(env) {
         ],
         mimeType: "application/json",
         tags: ["summarization", "nlp", "text-processing", "ai-agents", "extractive", "no-hallucination"],
+        input: {
+          contentType: "application/json",
+          schema: {
+            type: "object",
+            required: ["text"],
+            properties: {
+              text: {
+                type: "string",
+                description: "The text to summarize",
+              },
+              pct: {
+                type: "integer",
+                minimum: 0,
+                maximum: 100,
+                default: 50,
+                description: "Percentage of sentences to keep (0-100). Lower = more reduction.",
+              },
+            },
+          },
+          examples: [
+            {
+              text: "Your long document text here...",
+              pct: 30,
+            },
+          ],
+        },
+        output: {
+          schema: {
+            type: "object",
+            properties: {
+              summary: { type: "string", description: "The reduced text" },
+              stats: {
+                type: "object",
+                properties: {
+                  sentencesKept: { type: "integer" },
+                  sentencesTotal: { type: "integer" },
+                  compressionRatio: { type: "integer" },
+                },
+              },
+            },
+          },
+        },
       },
     ],
     pricing: { model: "per-request", amount: "$0.001", currency: "USDC" },
@@ -290,7 +332,11 @@ export default {
     if (path === "/api" || path === "/api/") return handleApiDocs(env);
     if (path === "/api/summarize") return handleSummarize(request, env);
 
-    // Static files (index.html, robots.txt, etc.) handled by [site] config
-    return env.ASSETS.fetch(request);
+    // Redirect root to main site, 404 everything else
+    if (path === "/" || path === "/index.html") {
+      return Response.redirect("https://textreduce.com", 302);
+    }
+
+    return json({ error: "Not found" }, 404);
   },
 };
