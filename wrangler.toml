@@ -12,7 +12,7 @@ compatibility_date = "2024-01-01"
 # Your Base wallet for receiving USDC payments
 X402_WALLET_ADDRESS = "0x8D09C494Df969eA4c8744C4Cf94A99F17314eB23"
 
-# Mainnet config (Base)
-X402_NETWORK = "eip155:8453"
-X402_FACILITATOR_URL = "https://api.cdp.coinbase.com/platform/v2/x402"
+# x402 V1 config with PayAI facilitator (no auth required, has funded signers)
+# Network is hardcoded in worker.js as "base" (Base mainnet V1 format)
+X402_FACILITATOR_URL = "https://facilitator.payai.network"
 X402_PRICE_USDC = "1000"  # $0.001 (6 decimals)

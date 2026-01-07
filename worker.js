@@ -102,50 +102,109 @@ function summarize(text, keepPct) {
 // x402 PAYMENT HANDLING
 // ============================================
 
-function buildPaymentRequired(env) {
+function buildPaymentRequired(env, requestUrl) {
+  // x402 V1 format: x402.rs only supports V1!
+  const baseUrl = new URL(requestUrl).origin;
   return {
+    x402Version: 1,
     accepts: [
       {
         scheme: "exact",
-        network: env.X402_NETWORK,
-        maxAmountRequired: env.X402_PRICE_USDC,
-        resource: "/api/summarize",
-        description: "TextReduce: 100k+ tokens/sec. Zero hallucination. Up to 99% reduction to only the most information-dense sentences.",
-        mimeType: "application/json",
-        payTo: env.X402_WALLET_ADDRESS,
+        network: "base", // x402.rs V1 uses simple network names
         asset: USDC_BASE,
-        maxDeadlineSeconds: 60,
+        maxAmountRequired: env.X402_PRICE_USDC,
+        payTo: env.X402_WALLET_ADDRESS,
+        maxTimeoutSeconds: 60,
+        resource: `${baseUrl}/api/summarize`,
+        description: "TextReduce: 100k+ tokens/sec. Zero hallucination.",
+        mimeType: "application/json",
+        outputSchema: {},
+        extra: {
+          name: "USD Coin",  // EIP-712 domain name for USDC
+          version: "2"       // EIP-712 domain version for USDC
+        }
       },
     ],
-    error: "Payment required",
   };
 }
 
-async function verifyPayment(paymentHeader, env) {
+// Base64 encode for x402 header (SDK expects base64)
+function encodePaymentRequired(obj) {
+  return btoa(JSON.stringify(obj));
+}
+
+async function verifyPayment(paymentHeader, env, requestUrl) {
   try {
+    // Decode payment - SDK sends base64 encoded
+    let paymentPayload;
+    try {
+      paymentPayload = JSON.parse(atob(paymentHeader));
+    } catch {
+      paymentPayload = JSON.parse(paymentHeader);
+    }
+
+    // V2: paymentRequirements is just the accepts[0] terms
+    const paymentRequirements = buildPaymentRequired(env, requestUrl).accepts[0];
+
+    // V1: facilitator expects x402Version at top level for verify
+    const requestBody = { x402Version: 1, paymentPayload, paymentRequirements };
+    console.log(`[x402] Calling ${env.X402_FACILITATOR_URL}/verify`);
+    console.log(`[x402] Request body: ${JSON.stringify(requestBody, null, 2)}`);
+
     const response = await fetch(`${env.X402_FACILITATOR_URL}/verify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        payment: JSON.parse(paymentHeader),
-        requirements: buildPaymentRequired(env).accepts[0],
-      }),
+      body: JSON.stringify(requestBody),
     });
-    return response.ok;
-  } catch {
-    return false;
+
+    const responseText = await response.text();
+    console.log(`[x402] Response status: ${response.status}`);
+    console.log(`[x402] Response body: ${responseText}`);
+
+    if (!response.ok) {
+      return { valid: false, error: `HTTP ${response.status}`, response: responseText };
+    }
+
+    const result = JSON.parse(responseText);
+    if (result.isValid === true) {
+      return { valid: true };
+    }
+    return { valid: false, error: result.invalidReason || "Unknown", response: responseText };
+  } catch (e) {
+    console.log(`[x402] Verify error: ${e.message}`);
+    return { valid: false, error: e.message };
   }
 }
 
-async function settlePayment(paymentHeader, env) {
+async function settlePayment(paymentHeader, env, requestUrl) {
   try {
-    await fetch(`${env.X402_FACILITATOR_URL}/settle`, {
+    let paymentPayload;
+    try {
+      paymentPayload = JSON.parse(atob(paymentHeader));
+    } catch {
+      paymentPayload = JSON.parse(paymentHeader);
+    }
+    const paymentRequirements = buildPaymentRequired(env, requestUrl).accepts[0];
+    // x402.rs expects x402Version at top level
+    const settleBody = { x402Version: 1, paymentPayload, paymentRequirements };
+    console.log(`[x402] Settle request:`, JSON.stringify(settleBody, null, 2));
+    const response = await fetch(`${env.X402_FACILITATOR_URL}/settle`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ payment: JSON.parse(paymentHeader) }),
+      body: JSON.stringify(settleBody),
     });
-  } catch {
-    // Settlement errors logged but don't block response
+
+    if (response.ok) {
+      const result = await response.json();
+      console.log(`[x402] Settlement result:`, JSON.stringify(result));
+      return result; // { success, transaction, network, payer }
+    }
+    const errorText = await response.text();
+    console.log(`[x402] Settlement failed:`, errorText);
+    return { success: false, error: errorText };
+  } catch (e) {
+    console.log(`[x402] Settlement error:`, e.message);
+    return { success: false, error: e.message };
   }
 }
 
@@ -161,20 +220,31 @@ function json(data, status = 200, headers = {}) {
 }
 
 async function handleSummarize(request, env) {
-  // Check for x402 payment
-  const paymentHeader = request.headers.get("X-PAYMENT") || request.headers.get("PAYMENT-SIGNATURE");
+  // Check for x402 payment - SDK may use different header names
+  const paymentHeader = request.headers.get("X-PAYMENT")
+    || request.headers.get("PAYMENT-SIGNATURE")
+    || request.headers.get("x-payment")
+    || request.headers.get("X-Payment");
+
+  // Debug: log all headers
+  console.log("Received headers:", [...request.headers.entries()].map(([k,v]) => `${k}: ${v.substring(0,50)}`).join(", "));
 
   if (!paymentHeader) {
-    // No payment - return 402
-    return json(buildPaymentRequired(env), 402, {
-      "PAYMENT-REQUIRED": JSON.stringify(buildPaymentRequired(env)),
+    // No payment - return 402 with base64-encoded header (x402 SDK requirement)
+    const paymentRequired = buildPaymentRequired(env, request.url);
+    return json(paymentRequired, 402, {
+      "PAYMENT-REQUIRED": encodePaymentRequired(paymentRequired),
     });
   }
 
   // Verify payment with facilitator
-  const valid = await verifyPayment(paymentHeader, env);
-  if (!valid) {
-    return json({ error: "Payment verification failed" }, 402);
+  const verifyResult = await verifyPayment(paymentHeader, env, request.url);
+  if (!verifyResult.valid) {
+    return json({
+      error: "Payment verification failed",
+      facilitatorError: verifyResult.error,
+      facilitatorResponse: verifyResult.response
+    }, 402);
   }
 
   // Parse request
@@ -197,8 +267,8 @@ async function handleSummarize(request, env) {
   const keepPct = Math.min(100, Math.max(0, pct)) / 100;
   const result = summarize(text, keepPct);
 
-  // Settle payment in background
-  settlePayment(paymentHeader, env);
+  // Settle payment and get transaction hash
+  const settlement = await settlePayment(paymentHeader, env, request.url);
 
   return json({
     summary: result.summary,
@@ -207,6 +277,7 @@ async function handleSummarize(request, env) {
       sentencesTotal: result.total,
       compressionRatio: result.total > 0 ? Math.round((result.kept / result.total) * 100) : 0,
     },
+    payment: settlement,  // Return full settlement response for debugging
   });
 }
 
